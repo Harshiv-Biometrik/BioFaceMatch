@@ -3,6 +3,7 @@
     "name": "BioFaceMatch",
     "slug": "BioFaceMatch",
     "version": "1.0.0",
+    "scheme": "biofacematch",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,18 +13,47 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera"
+      },
+      "bundleIdentifier": "com.expoharshivbio.biofacematch"
     },
     "android": {
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "package": "com.expoharshivbio.biofacematch"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermission": "Allow BioFaceMatch to access your camera",
+          "enableMicrophonePermission": false,
+          "enableCodeScanner": true
+        }
+      ],
+      "react-native-fast-tflite"    ],
+    "experiments": {
+      "typedRoutes": true
     }
   }
 }

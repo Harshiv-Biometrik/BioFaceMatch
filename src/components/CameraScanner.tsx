@@ -16,13 +16,14 @@ type Props = {
   onResult?: (payload: string) => void;
   onEmbedding?: (embedding: number[]) => void;
   buttonLabel?: string;
+  metadata?: Record<string, any>;
 };
 
 const DEFAULT_MODEL_SIZE = 160;
 const EMBEDDING_SIZE = 128;
 const CENTER_CROP_RATIO = 0.85;
 
-export default function CameraScanner({ onResult, onEmbedding, buttonLabel }: Props) {
+export default function CameraScanner({ onResult, onEmbedding, buttonLabel, metadata }: Props) {
   const [cameraPosition, setCameraPosition] = useState<'front' | 'back'>('front');
   const device = useCameraDevice(cameraPosition);
   const { resize } = useResizePlugin();
@@ -91,7 +92,11 @@ export default function CameraScanner({ onResult, onEmbedding, buttonLabel }: Pr
       console.log(`2. Compressed Base64 String (Length: ${compressedBase64.length})`);
       console.log(`   Preview: ${compressedBase64.slice(0, 30)}...`);
 
-      const encryptedPayload = encryptPayload(compressedBase64);
+      const finalPayloadObj = metadata
+        ? JSON.stringify({ ...metadata, bio: compressedBase64 })
+        : compressedBase64;
+
+      const encryptedPayload = encryptPayload(finalPayloadObj);
       if (!encryptedPayload) {
         setErrorMessage('Failed to encrypt embedding payload.');
         setWorking(false);
@@ -106,7 +111,7 @@ export default function CameraScanner({ onResult, onEmbedding, buttonLabel }: Pr
       setWorking(false);
       onResult(encryptedPayload); // Send the encrypted payload to the QR code
     },
-    [onEmbedding, onResult]
+    [onEmbedding, onResult, metadata]
   );
 
   const failInference = useRunOnJS(

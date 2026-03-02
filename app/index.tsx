@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import React, { useMemo, useState } from 'react';
+import { Feather } from '@expo/vector-icons';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import CameraScanner from '../src/components/CameraScanner';
@@ -7,13 +8,16 @@ import QRScanner from '../src/components/QRScanner';
 import { matchEmbeddings } from '../src/services/biometric';
 import { decompressVector } from '../src/services/compression';
 import { decryptPayload } from '../src/services/encryption';
-type Stage = 'enroll' | 'showQr' | 'scanQr' | 'verifyCapture' | 'result';
+type Stage = 'enrollInfo' | 'enrollPhoto' | 'showQr' | 'scanQr' | 'verifyCapture' | 'result';
+type UserInfo = { name: string; mobile: string; email: string };
 
 const MATCH_THRESHOLD = 0.78;
 
 export default function Home() {
-  const [stage, setStage] = useState<Stage>('enroll');
+  const [stage, setStage] = useState<Stage>('enrollInfo');
   const [qrValue, setQrValue] = useState<string | null>(null);
+  const [userInfo, setUserInfo] = useState<UserInfo>({ name: '', mobile: '', email: '' });
+  const [matchedUserInfo, setMatchedUserInfo] = useState<UserInfo | null>(null);
   const [referenceEmbedding, setReferenceEmbedding] = useState<number[] | null>(null);
   const [manualPayload, setManualPayload] = useState('');
   const [scanError, setScanError] = useState<string | null>(null);
@@ -27,8 +31,10 @@ export default function Home() {
   }, [lastScore]);
 
   const resetAll = () => {
-    setStage('enroll');
+    setStage('enrollInfo');
     setQrValue(null);
+    setUserInfo({ name: '', mobile: '', email: '' });
+    setMatchedUserInfo(null);
     setReferenceEmbedding(null);
     setManualPayload('');
     setScanError(null);
@@ -49,20 +55,41 @@ export default function Home() {
       return;
     }
 
-    console.log(`2. Decrypted Base64 String (Length: ${decryptedStr.length})`);
-    console.log(`   Preview: ${decryptedStr.slice(0, 30)}...`);
+    console.log(`2. Decrypted String (Length: ${decryptedStr.length})`);
 
-    const vector = decompressVector(decryptedStr);
-    console.log(`3. Decompressed Vector Length: ${vector.length}`);
+    let vector: number[] = [];
+    let info: UserInfo | null = null;
+
+    try {
+      // Check if it's a JSON object (new format) or just raw compressed bio (old format)
+      if (decryptedStr.startsWith('{')) {
+        const parsed = JSON.parse(decryptedStr);
+        info = {
+          name: parsed.name || 'Unknown',
+          mobile: parsed.mobile || '',
+          email: parsed.email || '',
+        };
+        vector = decompressVector(parsed.bio);
+      } else {
+        vector = decompressVector(decryptedStr);
+      }
+    } catch (e) {
+      console.log(`[Scan Error] Failed to parse decrypted payload: ${e}`);
+      setScanError('Failed to parse decrypted payload.');
+      return;
+    }
+
     if (vector.length === 0) {
       console.log(`[Scan Error] Invalid QR payload. Unable to decode biometric vector.`);
       setScanError('Invalid QR payload. Unable to decode biometric vector.');
       return;
     }
 
+    console.log(`3. Decompressed Vector Length: ${vector.length}`);
     console.log(`   Sample: [${vector.slice(0, 3).map(n => n.toFixed(4)).join(', ')}...]`);
     console.log(`------------------------------\n`);
 
+    setMatchedUserInfo(info);
     setReferenceEmbedding(vector);
     setScanError(null);
     setStage('verifyCapture');
@@ -84,12 +111,54 @@ export default function Home() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Biometric QR Pass' }} />
-      {stage === 'enroll' ? <CameraScanner onResult={(data) => {
-        setQrValue(data);
-        setStage('showQr');
-      }}
-        buttonLabel="Capture Enrollment"
-      /> : null}
+      {stage === 'enrollInfo' ? (
+        <View style={styles.result}>
+          <View style={styles.card}>
+            <Text style={styles.title}>Personal Info</Text>
+            <TextInput
+              style={styles.input}
+              value={userInfo.name}
+              onChangeText={(val) => setUserInfo(prev => ({ ...prev, name: val }))}
+              placeholder="Full Name"
+              placeholderTextColor="#94a3b8"
+            />
+            <TextInput
+              style={styles.input}
+              value={userInfo.mobile}
+              onChangeText={(val) => setUserInfo(prev => ({ ...prev, mobile: val }))}
+              placeholder="Mobile Number"
+              placeholderTextColor="#94a3b8"
+              keyboardType="phone-pad"
+            />
+            <TextInput
+              style={styles.input}
+              value={userInfo.email}
+              onChangeText={(val) => setUserInfo(prev => ({ ...prev, email: val }))}
+              placeholder="Email Address"
+              placeholderTextColor="#94a3b8"
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            <TouchableOpacity
+              style={[styles.button, !userInfo.name && styles.buttonDisabled]}
+              onPress={() => setStage('enrollPhoto')}
+              disabled={!userInfo.name}
+            >
+              <Text style={styles.buttonText}>Continue to Photo</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
+      {stage === 'enrollPhoto' ? (
+        <CameraScanner
+          onResult={(data) => {
+            setQrValue(data);
+            setStage('showQr');
+          }}
+          metadata={userInfo}
+        />
+      ) : null}
 
       {stage === 'showQr' && qrValue ? (
         <View style={styles.result}>
@@ -130,9 +199,32 @@ export default function Home() {
       {stage === 'result' ? (
         <View style={styles.result}>
           <View style={styles.card}>
-            <Text style={[styles.title, { color: lastDecision ? '#16a34a' : '#dc2626', marginBottom: 16 }]}>
-              {lastDecision ? 'VERIFIED' : 'ACCESS DENIED'}
-            </Text>
+            <View style={{ alignItems: 'center', marginBottom: 8 }}>
+              {lastDecision ? (
+                <Feather name="check-circle" size={55} color="#16a34a" />
+              ) : (
+                <Feather name="x-circle" size={55} color="#dc2626" />
+              )}
+              <Text style={[styles.title, { color: lastDecision ? '#16a34a' : '#dc2626' }]}>
+                {lastDecision ? 'VERIFIED' : 'NOT MATCHED'}
+              </Text>
+            </View>
+            {lastDecision && matchedUserInfo && (
+              <Text style={styles.matchedName}>
+               {matchedUserInfo.name}
+              </Text>
+            )}
+            {lastDecision && matchedUserInfo?.mobile ? (
+            <>
+              <Text style={styles.matchedSub}>
+               Phone: {matchedUserInfo.mobile}
+              </Text>
+              <Text style={styles.matchedSub}>
+                Email: {matchedUserInfo.email}
+              </Text>
+            </>
+            ) : null}
+            <View style={{ height: 16 }} />
             <View style={styles.metricContainer}>
               <Text style={styles.metricLabel}>Cosine Similarity</Text>
               <Text style={styles.metricValue}>{scorePercent ?? '-'}%</Text>
@@ -173,7 +265,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 8,
   },
-  title: { fontSize: 24, fontWeight: '800', marginBottom: 24, color: '#0f172a', letterSpacing: 0.5 },
+  title: { fontSize: 26, fontWeight: '800', marginBottom: 24, color: '#0f172a', letterSpacing: 0.5 },
   caption: { marginTop: 16, color: '#64748b', textAlign: 'center', fontSize: 13, lineHeight: 18 },
   input: {
     width: '100%',
@@ -214,6 +306,12 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0'
   },
   buttonText: { color: '#ffffff', fontWeight: '700', fontSize: 15, letterSpacing: 0.3 },
+  buttonDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#94a3b8',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   buttonTextSecondary: { color: '#475569', fontWeight: '700', fontSize: 15, letterSpacing: 0.3 },
   error: { marginTop: 16, color: '#ef4444', textAlign: 'center', fontWeight: '500', fontSize: 14 },
 
@@ -228,4 +326,19 @@ const styles = StyleSheet.create({
   },
   metricLabel: { fontSize: 15, color: '#64748b', fontWeight: '500' },
   metricValue: { fontSize: 16, color: '#0f172a', fontWeight: '700' },
+  matchedName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1e293b',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  matchedSub: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    marginBottom: 8,
+    lineHeight: 18,
+    includeFontPadding: true,
+  },
 });
